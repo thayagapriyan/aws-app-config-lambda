@@ -13,7 +13,13 @@ const json = (
 
 export const program = Effect.gen(function* () {
   const config = yield* AppConfig
-  return json(200, yield* config.get)
+  return json(200, {
+    // Both set when the Lambda version was published: its number (by Lambda) and the
+    // AppConfig version deployed at that moment (by infra/main.tf).
+    lambdaVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION ?? "local",
+    configVersion: process.env.APPCONFIG_VERSION ?? "local",
+    settings: yield* config.get,
+  })
 }).pipe(
   // The URL is public: log the cause, return nothing about it.
   Effect.catchTag("AppConfigError", (e) =>

@@ -1,0 +1,2 @@
+# LF everywhere, so Biome and terraform file() see the same bytes on Windows as in CI.
+* text=auto eol=lf

@@ -15,9 +15,11 @@ it("returns the config", async () => {
     program.pipe(Effect.provide(AppConfigFile("config/dev.json"))),
   )
   expect(res.statusCode).toBe(200)
-  expect(JSON.parse(res.body ?? "")).toEqual(
-    JSON.parse(readFileSync("config/dev.json", "utf8")),
-  )
+  expect(JSON.parse(res.body ?? "")).toEqual({
+    lambdaVersion: "local",
+    configVersion: "local",
+    settings: JSON.parse(readFileSync("config/dev.json", "utf8")),
+  })
 })
 
 it("returns 500 without leaking the cause", async () => {

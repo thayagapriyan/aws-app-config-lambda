@@ -30,8 +30,18 @@ pnpm lint
 
 Edit `apps/config-lambda/config/<env>.json`. Changing its shape means editing
 `Settings` in [src/config.ts](apps/config-lambda/src/config.ts) too. CI fails the PR if
-any env file stops matching. On merge, Terraform creates a new hosted version and deploys
-it instantly. Warm Lambdas pick it up within the extension's 45 s poll.
+any env file stops matching. On merge:
+
+1. Only if the file changed: Terraform creates the next version in the `settings`
+   profile and deploys it to the `dev`/`prod` environment. Unchanged: the current
+   version stays.
+2. The Lambda gets `APPCONFIG_VERSION=<that number>` and a new Lambda version is
+   published (also on code-only changes). The `live` alias and its URL move to it.
+
+The URL shows both, e.g. `{"lambdaVersion":"3","configVersion":"2","settings":{...}}`.
+Warm Lambdas pick up config within the extension's 45 s poll. Every Lambda version
+reads the environment's *deployed* config: pinning old Lambda versions to old config,
+and deploying config or code alone, are still to be decided.
 
 ## One-time setup
 

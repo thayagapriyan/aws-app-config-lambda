@@ -69,7 +69,9 @@ resource "aws_appconfig_hosted_configuration_version" "settings" {
   content_type             = "application/json"
   content                  = file("${local.app_dir}/config/${var.env}.json")
 
-  # A config edit replaces this; keep the deployed version until the new one is live.
+  # Only a change to config/<env>.json creates a new version (1, 2, 3, ...); otherwise
+  # the current one stays. A new version is created and deployed before the old one is
+  # deleted - git history of the JSON file is the record of old versions.
   lifecycle {
     create_before_destroy = true
   }
@@ -147,6 +149,9 @@ resource "aws_cloudwatch_log_group" "lambda" {
   retention_in_days = 14
 }
 
+# publish = true: a code or config change publishes a new Lambda version. The config
+# version is in its env vars, and depends_on means that version is already deployed
+# (so the extension serves it) before the Lambda version is published.
 resource "aws_lambda_function" "this" {
   function_name    = local.name
   role             = aws_iam_role.lambda.arn
@@ -156,23 +161,34 @@ resource "aws_lambda_function" "this" {
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
   layers           = [data.aws_ssm_parameter.appconfig_extension.insecure_value]
+  publish          = true
 
-  # Read by src/config.ts (AppConfigExtension).
+  # Read by src/config.ts (AppConfigExtension); APPCONFIG_VERSION by src/handler.ts.
   environment {
     variables = {
       APPCONFIG_APPLICATION = aws_appconfig_application.this.name
       APPCONFIG_ENVIRONMENT = aws_appconfig_environment.this.name
       APPCONFIG_PROFILE     = aws_appconfig_configuration_profile.settings.name
+      APPCONFIG_VERSION     = aws_appconfig_hosted_configuration_version.settings.version_number
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.lambda]
+  depends_on = [aws_cloudwatch_log_group.lambda, aws_appconfig_deployment.settings]
+}
+
+# Follows the newest published version for now. Holding it back (promotion) is one of
+# the deploy cases still to decide; an ALB would target this alias.
+resource "aws_lambda_alias" "live" {
+  name             = "live"
+  function_name    = aws_lambda_function.this.function_name
+  function_version = aws_lambda_function.this.version
 }
 
 # Public by choice: the config holds nothing sensitive. With NONE, Lambda adds the
 # InvokeFunctionUrl/InvokeFunction permissions itself; no aws_lambda_permission needed.
 resource "aws_lambda_function_url" "this" {
   function_name      = aws_lambda_function.this.function_name
+  qualifier          = aws_lambda_alias.live.name
   authorization_type = "NONE"
 }
 
