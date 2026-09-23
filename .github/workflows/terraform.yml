@@ -1,0 +1,69 @@
+# Plan (and optionally apply) infra/ in one account. Called by ci.yml.
+name: terraform
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: dev | prod. The tfvar, and the vended role's suffix.
+        type: string
+        required: true
+      github_environment:
+        description: Must match the vending YAML - the role only trusts this environment.
+        type: string
+        required: true
+      account:
+        type: string
+        required: true
+      apply:
+        type: boolean
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    # Not decoration: the vended role's trust policy pins the OIDC sub to this
+    # environment, so without it the assume-role fails.
+    environment: ${{ inputs.github_environment }}
+    # A PR plan and a main apply share one state lock; queue instead of failing.
+    concurrency:
+      group: terraform-${{ inputs.env }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: lambda
+          path: apps/config-lambda/dist
+
+      # Role vended by aws-foundation/role-vending/repos/aws-app-config-lambda.yaml,
+      # named <role_prefix><env>, so the ARN is derivable - no repo variables to set.
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ inputs.account }}:role/aws-app-config-lambda-${{ inputs.env }}
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.4
+          terraform_wrapper: false
+
+      - run: terraform init -input=false -backend-config=bucket=${{ inputs.account }}-tf-remote-state
+      - run: terraform plan -input=false -var env=${{ inputs.env }} -out=tfplan
+      - run: |
+          { echo '### ${{ inputs.env }} plan'; echo '```'; terraform show -no-color tfplan; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - if: inputs.apply
+        run: terraform apply -input=false tfplan
+
+      # 200 means the Lambda reached the extension and the config passed the Schema.
+      - if: inputs.apply
+        name: smoke test
+        run: curl -fsS --retry 5 --retry-all-errors --retry-delay 5 "$(terraform output -raw function_url)"

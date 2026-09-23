@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.turbo/
+.build/
+.terraform/
+*.tfstate
+*.tfstate.backup

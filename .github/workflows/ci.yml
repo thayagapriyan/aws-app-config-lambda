@@ -1,0 +1,71 @@
+# PR: build + test, then plan against dev.
+# main: build + test, apply dev, then prod (gated by the "production" environment).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # version from package.json "packageManager"
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm biome ci .
+      - run: pnpm turbo run typecheck test build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lambda
+          path: apps/config-lambda/dist
+
+  plan:
+    if: github.event_name == 'pull_request'
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/terraform.yml
+    with:
+      env: dev
+      github_environment: dev
+      account: "724126527725"
+      apply: false
+
+  dev:
+    if: github.event_name == 'push'
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/terraform.yml
+    with:
+      env: dev
+      github_environment: dev
+      account: "724126527725"
+      apply: true
+
+  prod:
+    needs: dev
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/terraform.yml
+    with:
+      env: prod
+      github_environment: production
+      account: "224193574799"
+      apply: true

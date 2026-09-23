@@ -1,0 +1,4 @@
+{
+  "greeting": "hello from dev",
+  "features": { "betaBanner": true }
+}

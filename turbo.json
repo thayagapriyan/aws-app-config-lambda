@@ -1,0 +1,9 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "build": { "outputs": ["dist/**"] },
+    "typecheck": {},
+    "test": {},
+    "dev": { "cache": false, "persistent": true }
+  }
+}
